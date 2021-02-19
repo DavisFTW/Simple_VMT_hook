@@ -3,35 +3,33 @@
 
 #define LOG(x) { std::cout << x << std::endl; }
 
+using VirtualFn1_t = void(__thiscall*)(void* thisptr, int a, int b);
+VirtualFn1_t orig_VirtualFn1;
+
 class VirtualClass
 {
 public:
 
     int number;
 
-    virtual void VirtualFn1() //This is the virtual function that will be hooked.
+    virtual void VirtualFn1(int a, int b) //This is the virtual function that will be hooked.
     {
-        std::cout << "VirtualFn1 called " << number++ << "\n\n";
+        std::cout << a + b << std::endl;
+    }
+    virtual void VirtualFn2(int a, int b) 
+    {
+        std::cout << a - b << std::endl;
     }
 
     virtual void getBase() { std::cout << (this) << std::endl; }
 };
 
-
-
-
-using VirtualFn1_t = void(__thiscall*)(void* thisptr);
-using funcType = void(__fastcall)(void*, int);
-VirtualFn1_t orig_VirtualFn1;
-
-
-std::uintptr_t __fastcall hkVirtualFn1(std::uintptr_t* thisptr, int edx) // hook function
+void __fastcall hkVirtualFn1(int a, int b, std::uintptr_t* thisptr, int edx) // hook function
 {
-    LOG("Hook function called");
+    a = 9999;
+    b = 9999;
 
-    orig_VirtualFn1(thisptr); //Call the original function.
-
-    return 0;
+    orig_VirtualFn1(thisptr, a , b); //Call the original function.
 }
 
 int main()
@@ -49,15 +47,18 @@ int main()
     std::cout << (void*)*vmt_pointer << std::endl;  // dereferenced vmt pointer leads us to 
 
 
-    VirtualProtect(vmt_pointer, 4, PAGE_EXECUTE_READWRITE, &oldProtection);  
+    VirtualProtect(vmt_pointer, 4, PAGE_EXECUTE_READWRITE, &oldProtection);  // 
 
     orig_VirtualFn1 = reinterpret_cast<VirtualFn1_t>(*vmt_pointer);   // store our origal function pointer 
     *vmt_pointer = reinterpret_cast<std::uintptr_t>(&hkVirtualFn1);   // redirect our pointers
 
-    VirtualProtect(vmt_pointer, 4, oldProtection, 0);    // set the old protection back
-    vClass->VirtualFn1();
-    vClass->VirtualFn1();
+    VirtualProtect(vmt_pointer, 4, oldProtection, NULL);    // set the old protection back
+    vClass->VirtualFn1(5, 5);
+    vClass->VirtualFn1(5, 5);
+
+    std::cout << "----------------------------------" << std::endl;
+    *vmt_pointer = reinterpret_cast<std::uintptr_t>(orig_VirtualFn1);
+    vClass->VirtualFn1(5, 5);
     delete vClass;
     return 0;
 }
-
