@@ -1,64 +1,78 @@
+// dllmain.cpp : Defines the entry point for the DLL application.
+#include "pch.h"
+#include <Windows.h>
 #include <iostream>
-#include "windows.h"
 
-#define LOG(x) { std::cout << x << std::endl; }
+using functionT = void(__thiscall*)(std::uintptr_t* thisptr);
+functionT original_function;
 
-using VirtualFn1_t = void(__thiscall*)(void* thisptr, int a, int b);
-VirtualFn1_t orig_VirtualFn1;
-
-class VirtualClass
+void __fastcall hooked_function(std::uintptr_t* pointer, int edx)
 {
-public:
+    std::cout << "hi from dll" << std::endl;
 
-    int number;
-
-    virtual void VirtualFn1(int a, int b) //This is the virtual function that will be hooked.
-    {
-        std::cout << a + b << std::endl;
-    }
-    virtual void VirtualFn2(int a, int b) 
-    {
-        std::cout << a - b << std::endl;
-    }
-
-    virtual void getBase() { std::cout << (this) << std::endl; }
-};
-
-void __fastcall hkVirtualFn1(int a, int b, std::uintptr_t* thisptr, int edx) // hook function
-{
-    a = 9999;
-    b = 9999;
-
-    orig_VirtualFn1(thisptr, a , b); //Call the original function.
+    // call the original function
+    original_function(pointer);
 }
 
-int main()
+DWORD WINAPI entry(HMODULE hModule)
 {
-    DWORD oldProtection = 0;
+    DWORD virtual_address   = 0x317C; // RVA is the last 4 digits of address
+    DWORD old_protection    = 0 ;
+    DWORD base_address      = 0;
+    DWORD RVA               = 0;
+    // get base address
 
-    VirtualClass* vClass = new VirtualClass();
-
-    // get our class pointer and our vmt pointer
-    auto class_pointer = reinterpret_cast<std::uintptr_t**>(vClass);   // class ptr
-    auto vmt_pointer = reinterpret_cast<std::uintptr_t*>(*class_pointer); // class_vmt pointer
-
-
-    std::cout << (void*)class_pointer << std::endl;
-    std::cout << (void*)*vmt_pointer << std::endl;  // dereferenced vmt pointer leads us to 
+    base_address = (DWORD)GetModuleHandleA(nullptr);
 
 
-    VirtualProtect(vmt_pointer, 4, PAGE_EXECUTE_READWRITE, &oldProtection);  // 
+    // get vmt from RvA
+    std::uintptr_t* vTable = reinterpret_cast<std::uintptr_t*>((DWORD)GetModuleHandleA(nullptr) + virtual_address);   // get our vTable
+   
+    VirtualProtect(vTable, 4, PAGE_READWRITE, &old_protection); // remove the protection
 
-    orig_VirtualFn1 = reinterpret_cast<VirtualFn1_t>(*vmt_pointer);   // store our origal function pointer 
-    *vmt_pointer = reinterpret_cast<std::uintptr_t>(&hkVirtualFn1);   // redirect our pointers
+    // store the original function
 
-    VirtualProtect(vmt_pointer, 4, oldProtection, NULL);    // set the old protection back
-    vClass->VirtualFn1(5, 5);
-    vClass->VirtualFn1(5, 5);
+    original_function = reinterpret_cast<functionT>(*vTable);
 
-    std::cout << "----------------------------------" << std::endl;
-    *vmt_pointer = reinterpret_cast<std::uintptr_t>(orig_VirtualFn1);
-    vClass->VirtualFn1(5, 5);
-    delete vClass;
-    return 0;
+    // swap our pointers
+
+    *vTable = reinterpret_cast<std::uintptr_t>(&hooked_function);
+
+    // restore the old protection
+
+    VirtualProtect(vTable, 4, old_protection, 0);
+
+    while (true)
+    {
+        // do not use GetAsyncKeyState() in internals, there is a better way
+        if (GetAsyncKeyState(VK_F1))  
+        {
+            //unhook our hooked feature
+            *vTable = reinterpret_cast<std::uintptr_t>(original_function);  
+        }
+            
+    }
 }
+
+BOOL APIENTRY DllMain( HMODULE hModule,
+                       DWORD  ul_reason_for_call,
+                       LPVOID lpReserved
+                     )
+{
+    switch (ul_reason_for_call)
+    {   
+    case DLL_PROCESS_ATTACH:
+    {
+        DisableThreadLibraryCalls(hModule);
+        auto handle = CreateThread(nullptr, NULL, (LPTHREAD_START_ROUTINE)entry(hModule), hModule, NULL, nullptr);
+        if (handle)
+            CloseHandle(handle);
+    }
+    case DLL_THREAD_ATTACH:
+    case DLL_THREAD_DETACH:
+    case DLL_PROCESS_DETACH:
+        break;
+    }
+    return TRUE;
+}
+
