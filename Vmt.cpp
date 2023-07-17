@@ -44,7 +44,7 @@ DWORD WINAPI entry(HMODULE hModule)
 
     while (true)
     {
-        // do not use GetAsyncKeyState() in internals, there is a better way
+        
         if (GetAsyncKeyState(VK_F1))  
         {
             //unhook our hooked feature
